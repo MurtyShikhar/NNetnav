@@ -31,7 +31,7 @@ def parse_trajectories(trajectories_all, filter_dir):
     Parse trajectories, so that we can get actual low-level actions from LM generated strings
     """
 
-    ipath = "/u/scr/smurty/agents-with-exploration/webarena/agent/prompts/jsons/p_cot_id_actree_2s.json"
+    ipath = "src/agent/prompts/jsons/p_cot_id_actree_2s.json"
     lm_config = None
     tokenizer = None
     prompt = CoTPromptConstructor(ipath, lm_config, tokenizer)

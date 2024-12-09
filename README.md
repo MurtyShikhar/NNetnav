@@ -83,7 +83,7 @@ This codebase uses two environments, MiniWoB++ and WebArena. For setup instructi
 - [WebArena Setup](https://github.com/web-arena-x/webarena)
 - [MiniWoB++ Setup](https://github.com/ServiceNow/BrowserGym/blob/main/browsergym/miniwob/README.md)
 
-If you run into issues with either setup, please open an issue on the respective repostories. Note that correctly setting up environments is a pre-requisite for the rest of the code
+If you run into issues with either setup, please open an issue on the respective repositories. Note that correctly setting up environments is a pre-requisite for the rest of the code
 
 ## Environment variables
 
@@ -128,7 +128,7 @@ python src/run_nnetnav.py \
 
 After this, run:
 ```bash
-python postprocessing/postprocess_outputs.py \
+python src/postprocess_outputs.py \
   --orig_dir EXPLORATION_NNETNAV \
   --filter_dir DATA_NNETNAV
 ```
