@@ -299,9 +299,9 @@ class NNetNavExplorerAgent(BrowserGymAgent):
                 bid_dict[o["browsergym_id"]] = o["name"]["value"]
             else:
                 bid_dict[o["browsergym_id"]] = ""
-        action_splitter = self.prompt_constructor["exploration"].instruction[
-            "meta_data"
-        ]["action_splitter"]
+        action_splitter = self.prompts["exploration"].instruction["meta_data"][
+            "action_splitter"
+        ]
         action_str = get_action_description_bgym(
             action,
             bid_dict,
