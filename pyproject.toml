@@ -1,0 +1,16 @@
+[project]
+name = "nnetnav"
+version = "0.1.0"
+description = "Interaction-first method for generating demonstrations for web-agents on any website"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "tqdm",
+    "openai",
+    "gymnasium",
+    "bs4",
+    "browsergym",
+    "distributed",
+    "browsergym-miniwob",
+    "agentlab"
+]
