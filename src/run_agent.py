@@ -46,12 +46,12 @@ from browsergym.webarena import ALL_WEBARENA_TASK_IDS
 
 from nnetnav_utils import get_url
 import nnetnav_registry
+from agentlab.llm.chat_api import OpenAIModelArgs
 import webvoyager_registry
 from bgym import ExpArgs, EnvArgs
 from nnetnav_registry import ALL_OPENENDED_WEBARENA_TASK_IDS, ALL_OPENWEB_TASK_IDS
 from webvoyager_registry import ALL_WEBVOYAGER_TASK_IDS
 
-from evaluation_harness import evaluator_router
 from agent import InstructionGenerator
 from joblib import Parallel, delayed
 from agentlab.experiments import args as agentlab_args
@@ -193,6 +193,7 @@ def config() -> argparse.Namespace:
         "--n_jobs", type=int, default=1, help="Number of parallel joblib jobs"
     )
     parser.add_argument("--agent_name", type=str, default="my_agent")
+    parser.add_argument("--use_openai", action="store_true")
     parser.add_argument("--use_openrouter", action="store_true")
     parser.add_argument("--use_together_ai", action="store_true")
     parser.add_argument(
@@ -265,7 +266,16 @@ if __name__ == "__main__":
 
     test_file_list = []
     changelog_model = None
-    if args.use_openrouter:
+
+    if args.use_openai:
+        chat_model_args = OpenAIModelArgs(
+            model_name=args.model,
+            max_total_tokens=16_384,
+            max_input_tokens=16_384 - 512,
+            max_new_tokens=512,
+            temperature=args.temperature,
+        )
+    elif args.use_openrouter:
         # use a reasonably high temperature to get multiple trajectories
         chat_model_args = OpenRouterModelArgs(
             model_name=args.model,
@@ -285,6 +295,9 @@ if __name__ == "__main__":
             temperature=args.temperature,
         )
     else:
+        print(
+            "Using self-hosted model. Make sure the server is running and the model is loaded."
+        )
         chat_model_args = SelfHostedModelArgs(
             model_name=args.model,
             max_total_tokens=16_384,

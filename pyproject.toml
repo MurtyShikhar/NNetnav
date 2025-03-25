@@ -14,3 +14,9 @@ dependencies = [
     "browsergym-miniwob",
     "agentlab"
 ]
+
+[tool.uv.sources]
+agentlab = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
