@@ -195,6 +195,7 @@ class AgentFactory(GenericAgentArgs):
         benchmark = bgym.DEFAULT_BENCHMARKS["webarena"]()
         self.set_benchmark(benchmark, False)
         self.flags.action.action_set.multiaction = True
+        print(self.chat_model_args)
         agent = NNetNavBrowserGymAgent(
             action_set_tag=args.action_set_tag,
             lm_config=llm_config,

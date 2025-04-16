@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentlab"
+dynamic = ["version"]
+description = "Main package for developing agents and experiments"
+authors = [
+    {name = "Rim Assouel", email = "rim.assouel@gmail.com"},
+    {name = "Alex Drouin", email = "alex.drouin@servicenow.com"},
+    {name = "Maxime Gasse", email = "maxime.gasse@servicenow.com"},
+    {name = "Alex Lacoste", email = "alex.lacoste@servicenow.com"},
+    {name = "Tom Marty", email = "tom.marty@polymtl.ca"},
+    {name = "Massimo Caccia", email = "massimo.caccia1@servicenow.com"},
+    {name = "Thibault Le Sellier de Chezelles", email = "thibault.de.chezelles@gmail.com"}
+]
+readme = "README.md"
+requires-python = "~=3.11.0"
+license = {text = "Apache-2.0"}
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    "black[jupyter]>=24.2.0",
+    "blacken-docs>=1.19.1",
+    "browsergym>=0.7.1",
+    "cffi>=1.17.1",
+    "contexttimer>=0.3.3",
+    "dask>=2025.2.0",
+    "distributed>=2025.2.0",
+    "flaky>=3.8.1",
+    "gitpython>=3.1.44",
+    "gradio>=5.5",
+    "huggingface-hub>=0.29.3",
+    "ipython>=9.0.2",
+    "joblib>=1.2.0",
+    "langchain-community>=0.3.19",
+    "matplotlib>=3.10.1",
+    "openai>=1.7,<2",
+    "pandas>=2.2.3",
+    "pillow>=11.1.0",
+    "pre-commit>=4.1.0",
+    "pytest-playwright>=0.7.0",
+    "pytest-xdist>=3.6.1",
+    "pytest==7.3.2",
+    "python-slugify>=8.0.4",
+    "pyyaml>=6",
+    "ray[default]>=2.43.0",
+    "requests>=2.32.3",
+    "tiktoken>=0.9.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/ServiceNow/AgentLab"
+
+[tool.setuptools.dynamic]
+version = {attr = "agentlab.__version__"}
+
+[tool.black]
+line-length = 100
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.nox
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+
+[project.scripts]
+agentlab-assistant = "agentlab.ui_assistant:main"
+agentlab-xray = "agentlab.analyze.agent_xray:main"
