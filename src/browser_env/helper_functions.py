@@ -14,6 +14,7 @@ from browser_env import (
     ObservationMetadata,
     StateInfo,
     action2str,
+    action2str_coordinate_based,
 )
 
 HTML_TEMPLATE = """
@@ -58,6 +59,49 @@ def get_render_action(
             action_str = action["pw_code"]
         case _:
             raise ValueError(f"Unknown action type {action['action_type']}")
+    return action_str
+
+
+def get_action_description_with_coordinates(
+    action: Action,
+    bid_meta_data: dict[str, str],
+    action_set_tag: str,
+    action_splitter: str,
+    coordinates,
+) -> str:
+    """
+    A version of get_action_description that works with bgym, with coordinates
+    """
+    match action_set_tag:
+        case "id_accessibility_tree":
+            if action["action_type"] in [
+                ActionTypes.CLICK,
+                ActionTypes.HOVER,
+                ActionTypes.TYPE,
+            ]:
+                action_name = str(action["action_type"]).split(".")[1].lower()
+                x, y = coordinates
+                if action["element_id"] in bid_meta_data:
+                    node_content = bid_meta_data[action["element_id"]]
+                    action_str = action2str_coordinate_based(
+                        action, action_set_tag, node_content, coordinates
+                    )
+                else:
+                    action_str = f'Attempt to perfom "{action_name}" on element at coordinates ({x}, {y}) but no matching DOM element found. Please check the observation more carefully.'
+            else:
+                if action["action_type"] == ActionTypes.NONE:
+                    action_str = f'The previous prediction you issued was "{action["raw_prediction"]}". However, the format was incorrect. Ensure that the action is wrapped inside a pair of {action_splitter} as follows: {action_splitter}action...{action_splitter}.'
+                else:
+                    action_str = action2str_coordinate_based(
+                        action, action_set_tag, "", coordinates
+                    )
+
+        case "playwright":
+            action_str = action["pw_code"]
+
+        case _:
+            raise ValueError(f"Unknown action type {action['action_type']}")
+
     return action_str
 
 

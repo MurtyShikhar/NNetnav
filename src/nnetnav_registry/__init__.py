@@ -42,7 +42,10 @@ def get_openweb_configs():
 
 
 configs = get_configs()
+
 ALL_OPENENDED_WEBARENA_TASK_IDS = []
+ALL_OPENENDED_WEBARENA_TASK_IDS_MAPS = []
+ALL_OPENENDED_WEBARENA_TASK_IDS_NO_MAPS = []
 ALL_OPENWEB_TASK_IDS = []
 
 for idx, _c in enumerate(configs):
@@ -53,6 +56,10 @@ for idx, _c in enumerate(configs):
         task_kwargs={"config_str": json.dumps(_c), "task_id": idx},
     )
     ALL_OPENENDED_WEBARENA_TASK_IDS.append(gym_id)
+    if "map" in _c["sites"]:
+        ALL_OPENENDED_WEBARENA_TASK_IDS_MAPS.append(gym_id)
+    else:
+        ALL_OPENENDED_WEBARENA_TASK_IDS_NO_MAPS.append(gym_id)
 
 openweb_configs = get_openweb_configs()
 for idx, _c in enumerate(openweb_configs):

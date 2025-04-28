@@ -1,6 +1,6 @@
 """
-    Script to run an agent end-to-end on a task.
-    We also use browsergym.
+Script to run an agent end-to-end on a task.
+We also use browsergym.
 """
 
 import datetime
@@ -24,6 +24,8 @@ from agent import (
     PromptAgent,
     TeacherForcingAgent,
     AgentFactory,
+    VLMAgentFactory,
+    FLAGS_VLM,
 )
 from agent.prompts import *
 from browser_env import (
@@ -48,7 +50,11 @@ from nnetnav_utils import get_url
 import nnetnav_registry
 import webvoyager_registry
 from bgym import ExpArgs, EnvArgs
-from nnetnav_registry import ALL_OPENENDED_WEBARENA_TASK_IDS, ALL_OPENWEB_TASK_IDS
+from nnetnav_registry import (
+    ALL_OPENENDED_WEBARENA_TASK_IDS,
+    ALL_OPENWEB_TASK_IDS,
+    ALL_OPENENDED_WEBARENA_TASK_IDS_NO_MAPS,
+)
 from webvoyager_registry import ALL_WEBVOYAGER_TASK_IDS
 
 from evaluation_harness import evaluator_router
@@ -58,6 +64,7 @@ from agentlab.experiments import args as agentlab_args
 from agentlab.experiments import study
 from agentlab.experiments.launch_exp import find_incomplete, run_experiments
 from agentlab.agents.generic_agent.agent_configs import FLAGS_GPT_4o
+
 from agentlab.llm.chat_api import (
     SelfHostedModelArgs,
     OpenRouterModelArgs,
@@ -195,12 +202,14 @@ def config() -> argparse.Namespace:
     parser.add_argument("--agent_name", type=str, default="my_agent")
     parser.add_argument("--use_openrouter", action="store_true")
     parser.add_argument("--use_together_ai", action="store_true")
+    parser.add_argument("--use_vlm", action="store_true")
     parser.add_argument(
         "--data",
         type=str,
         default="nnetnav6k",
         choices=[
             "nnetnav6k",
+            "nnetnav6k_no_maps",
             "nnetnav1k",
             "nnetnav_ow",
             "webarena_subsampled",
@@ -278,11 +287,13 @@ if __name__ == "__main__":
         # use a reasonably high temperature to get multiple trajectories
         # TogetherAI uses Turbo postfix for quantized models
         chat_model_args = TogetherAIModelArgs(
-            model_name=f"{args.model}-Turbo",
+            model_name=f"{args.model}",
             max_total_tokens=16_384,
             max_input_tokens=16_384 - 512,
             max_new_tokens=512,
             temperature=args.temperature,
+            top_p=args.top_p,
+            stop_token=args.stop_token,
         )
     else:
         chat_model_args = SelfHostedModelArgs(
@@ -307,6 +318,16 @@ if __name__ == "__main__":
                 # task_kwargs={"config_str": json.dumps(conf), "task_id": idx},
             )
             for task in ALL_OPENENDED_WEBARENA_TASK_IDS
+        ]
+    elif args.data == "nnetnav6k_no_maps":
+        env_args_list = [
+            EnvArgs(
+                task_name=task,
+                task_seed=0,
+                max_steps=20,
+                # task_kwargs={"config_str": json.dumps(conf), "task_id": idx},
+            )
+            for task in ALL_OPENENDED_WEBARENA_TASK_IDS_NO_MAPS
         ]
     elif args.data == "nnetnav1k":
         env_args_list = [
@@ -405,19 +426,32 @@ if __name__ == "__main__":
         exp_args_list = find_incomplete(args.result_dir, include_errors=True)
         exp_args_current = Counter([o.status for o in exp_args_list])
         logger.info(f"Current status: {exp_args_current}")
+        # replace chat model args with current one...
+        for exp in exp_args_list:
+            exp.agent_args.chat_model_args = chat_model_args
     else:
-        agent = AgentFactory(
-            flags=FLAGS_GPT_4o,
-            chat_model_args=chat_model_args,
-            agent_name=args.agent_name,
-            args=args,
-        )
+        if args.use_vlm:
+            # FLAGS_VLM is same as FLAGS_GPT_4o but uses screenshot_som!
+            agent = VLMAgentFactory(
+                flags=FLAGS_VLM,
+                chat_model_args=chat_model_args,
+                agent_name=args.agent_name,
+                args=args,
+            )
+        else:
+            agent = AgentFactory(
+                flags=FLAGS_GPT_4o,
+                chat_model_args=chat_model_args,
+                agent_name=args.agent_name,
+                args=args,
+            )
         exp_args_list = []
         for env_args in env_args_list:
             exp_args = ExpArgs(
                 agent_args=agent,
                 env_args=env_args,
                 logging_level=logging.INFO,
+                save_som=True if args.use_vlm else False,
             )
             exp_args_list.append(exp_args)
     logger.info(f"Total {len(exp_args_list)} tasks to run")

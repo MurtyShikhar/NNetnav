@@ -109,6 +109,55 @@ class Action(TypedDict):
     raw_prediction: str  # raw prediction from the model
 
 
+def action2str_coordinate_based(
+    action: Action, action_set_tag: str, semantic_element: str = "", coordinates=None
+) -> str:
+    """
+    Return string representation of an action, but the action is coordinate based
+    """
+    if coordinates is None:
+        x, y = 0, 0
+    else:
+        x, y = coordinates
+    if action_set_tag == "id_accessibility_tree":
+        match action["action_type"]:
+            case ActionTypes.CLICK:
+                # [ID=X] xxxxx
+                action_str = f"click ({x}, {y}) where ({x}, {y}) contains the element corresponding to {semantic_element}"
+            case ActionTypes.TYPE:
+                text = "".join([_id2key[i] for i in action["text"]])
+                text = text.replace("\n", " ")
+                action_str = f"type ({x}, {y}) [{text}] where ({x}, {y}) contains the element corresponding to {semantic_element}"
+            case ActionTypes.HOVER:
+                action_str = f"hover ({x}, {y}) where ({x}, {y}) contains the element corresponding to {semantic_element}"
+            case ActionTypes.SCROLL:
+                action_str = f"scroll [{action['direction']}]"
+            case ActionTypes.KEY_PRESS:
+                action_str = f"press [{action['key_comb']}]"
+            case ActionTypes.GOTO_URL:
+                action_str = f"goto [{action['url']}]"
+            case ActionTypes.NEW_TAB:
+                action_str = "new_tab"
+            case ActionTypes.PAGE_CLOSE:
+                action_str = "close_tab"
+            case ActionTypes.GO_BACK:
+                action_str = "go_back"
+            case ActionTypes.GO_FORWARD:
+                action_str = "go_forward"
+            case ActionTypes.PAGE_FOCUS:
+                action_str = f"page_focus [{action['page_number']}]"
+            case ActionTypes.STOP:
+                action_str = f"stop [{action['answer']}]"
+            case ActionTypes.NONE:
+                action_str = "none"
+            case _:
+                raise ValueError(f"Unknown action type {action['action_type']}")
+    else:
+        raise NotImplementedError(f"Unknown action set tag {action_set_tag}")
+
+    return action_str
+
+
 @beartype
 def action2str(action: Action, action_set_tag: str, semantic_element: str = "") -> str:
     """Return the string representation of an action

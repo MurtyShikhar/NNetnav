@@ -1,4 +1,5 @@
 import json
+import cv2
 import re
 from pathlib import Path
 from typing import Any, TypedDict
@@ -11,6 +12,12 @@ from llms.tokenizers import Tokenizer
 from llms.utils import APIInput
 import os
 from agentlab.llm.llm_utils import ParseError
+from agentlab.agents.visualwebarena.agent import image_data_to_uri
+from agentlab.llm.chat_api import make_system_message, make_user_message
+
+MOUSE_ICON_PATH = (
+    "/u/scr/smurty/agents-with-exploration/public/assets/mouse-cursor-icon.png"
+)
 
 
 def extract_tags(text, keys):
@@ -81,6 +88,197 @@ def parse_tags(text, keys=(), optional_keys=(), merge_multiple=False):
     valid = len(retry_messages) == 0
     retry_message = "\n".join(retry_messages)
     return content_dict, valid, retry_message
+
+
+def map_coordinates_to_dom(coordinates, elem_properties):
+    """Map (x, y) coordinates to a DOM ID based on bounding boxes."""
+    for dom_id in elem_properties:
+        properties = elem_properties[dom_id]
+        if "bbox" not in properties:
+            continue
+        if "set_of_marks" in properties and not properties["set_of_marks"]:
+            continue
+        if not properties["bbox"]:
+            continue
+        x, y, width, height = elem_properties[dom_id]["bbox"]
+        if x <= coordinates[0] <= x + width and y <= coordinates[1] <= y + height:
+            return dom_id
+    return None
+
+
+def extract_coordinates(action_text):
+    """Extract (x, y) coordinates from an action string."""
+    import re
+
+    match = re.search(r"\((\d+),\s*(\d+)\)", action_text)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def create_bgym_action_with_coordinates(action_str: str) -> tuple[str, dict]:
+    """Convert from action_str to a bgym action space with coordinates.
+    The bgym action space is defined as follows:
+    noop(wait_ms: float = 1000)
+    report_infeasible(reason: str)
+    send_msg_to_user(text: str)
+    """
+    action_str = action_str.strip()
+    action = (
+        action_str.split("(")[0].strip()
+        if "(" in action_str
+        else action_str.split()[0].strip()
+    )
+    match action:
+        case "click":
+            match = re.match(
+                r"click\s*\((\d+),\s*(\d+)\)\s*",
+                action_str,
+            )
+            x, y = match.groups()
+            coordinates = (int(x), int(y))
+            return "mouse_click({}, {})".format(x, y), {
+                "action_type": "click",
+                "coordinates": coordinates,
+            }
+        case "dblclick":
+            match = re.match(
+                r"dblclick\s*\((\d+),\s*(\d+)\)\s*",
+                action_str,
+            )
+            x, y = match.groups()
+            coordinates = (int(x), int(y))
+            return "mouse_dblclick({}, {})".format(x, y), {
+                "action_type": "dblclick",
+                "coordinates": coordinates,
+            }
+        case "type_no_clear":
+            match = re.search(
+                r"type_no_clear\s*\((\d+),\s*(\d+)\)\s*\[(.+)\]\s*",
+                action_str,
+            )
+            x, y, text = match.groups()
+            coordinates = (int(x), int(y))
+            return "mouse_click({}, {})\nkeyboard_type('{}')".format(x, y, text), {
+                "action_type": "type_no_clear",
+                "text": text,
+                "coordinates": coordinates,
+            }
+        case "hover":
+            match = re.match(
+                r"hover\s*\((\d+),\s*(\d+)\)\s*",
+                action_str,
+            )
+            x, y = match.groups()
+            coordinates = (int(x), int(y))
+            return "mouse_move({}, {})".format(x, y), {
+                "action_type": "hover",
+                "coordinates": coordinates,
+            }
+        case "type":
+            if not (action_str.endswith("[0]") or action_str.endswith("[1]")):
+                action_str += " [1]"
+            # something like type (x, y) [text] [0] or type (x, y) [text] [1]
+            match = re.search(
+                r"type\s*\((\d+),\s*(\d+)\)\s*\[(.+)\]\s*\[(\d+)\]",
+                action_str,
+            )
+            x, y, text, enter_flag = match.groups()
+            coordinates = (int(x), int(y))
+            # need to mouse_click(x, y) then keyboard_type(text) then keyboard_press(enter) if enter_flag == 1
+            if enter_flag == "1":
+                return (
+                    "mouse_click({}, {})\nkeyboard_press('Meta+a')\nkeyboard_press('Backspace')\nkeyboard_type('{}')\nkeyboard_press('Enter')".format(
+                        x, y, text
+                    ),
+                    {
+                        "action_type": "type",
+                        "coordinates": coordinates,
+                        "text": text,
+                        "enter_flag": enter_flag,
+                    },
+                )
+            else:
+                return (
+                    "mouse_click({}, {})\nkeyboard_press('Meta+a')\nkeyboard_press('Backspace')\nkeyboard_type('{}')".format(
+                        x, y, text
+                    ),
+                    {
+                        "action_type": "type",
+                        "coordinates": coordinates,
+                        "text": text,
+                        "enter_flag": enter_flag,
+                    },
+                )
+        case "press":
+            match = re.search(r"press ?\[(.+)\]", action_str)
+            if not match:
+                raise ParseError(f"Invalid press action {action_str}")
+            key_comb = match.group(1)
+            return "keyboard_press('{}')".format(key_comb), {
+                "action_type": "press",
+                "key_comb": key_comb,
+            }
+        case "scroll":
+            # up or down
+            match = re.search(r"scroll ?\[?(up|down)\]?", action_str)
+            if not match:
+                raise ParseError(f"Invalid scroll action {action_str}")
+            direction = match.group(1)
+            if direction == "down":
+                return "scroll(0, 100)", {
+                    "action_type": "scroll",
+                    "direction": direction,
+                }
+            else:
+                return "scroll(0, -100)", {
+                    "action_type": "scroll",
+                    "direction": direction,
+                }
+        case "goto":
+            match = re.search(r"goto ?\[(.+)\]", action_str)
+            if not match:
+                raise ParseError(f"Invalid goto action {action_str}")
+            url = match.group(1)
+            return "goto('{}')".format(url), {
+                "action_type": "goto",
+                "url": url,
+            }
+        case "new_tab":
+            return "new_tab()", {
+                "action_type": "new_tab",
+            }
+        case "go_back":
+            return "go_back()", {
+                "action_type": "go_back",
+            }
+        case "go_forward":
+            return "go_forward()", {
+                "action_type": "go_forward",
+            }
+        case "tab_focus":
+            match = re.search(r"tab_focus ?\[(\d+)\]", action_str)
+            if not match:
+                raise ParseError(f"Invalid tab_focus action {action_str}")
+            page_number = int(match.group(1))
+            return "tab_focus({})".format(page_number), {
+                "action_type": "tab_focus",
+                "page_number": page_number,
+            }
+        case "close_tab":
+            return "tab_close()", {
+                "action_type": "close_tab",
+            }
+        case "stop":  # stop answer
+            match = re.search(r"stop ?\[(.+)\]", action_str)
+            if not match:  # some tasks don't require an answer
+                answer = ""
+            else:
+                answer = match.group(1)
+            return "send_msg_to_user('{}')".format(answer), {
+                "action_type": "stop",
+                "answer": answer,
+            }
+
+    raise ParseError(f"Invalid action {action_str}")
 
 
 def create_bgym_action(action_str: str) -> str:
@@ -594,6 +792,7 @@ class CoTPromptConstructorBgym(PromptConstructor):
 
     def extract_action(self, response: str) -> str:
         response = self._extract_action(response)
+        response = self.map_url_to_local(response)
         return response
 
     def _parse_answer(self, response: str) -> dict:
@@ -610,6 +809,222 @@ class CoTPromptConstructorBgym(PromptConstructor):
                 "bgym_action": bgym_action,
                 "raw_prediction": response,
             }
+        except Exception as e:
+            raise ParseError(
+                f"Cannot parse action from response {response}. Error: {e}"
+            )
+
+
+class CoTPromptConstructVision(CoTPromptConstructorBgym):
+    """Same as a bgym prompt constructor, but for vision"""
+
+    def get_trajectory_info(self, past_screenshots, past_actions):
+        """
+        Convert this into a dictionary
+        """
+        screenshot_uris = [
+            {"type": "image_url", "image_url": {"url": image_data_to_uri(screenshot)}}
+            for screenshot in past_screenshots
+        ]
+
+        trajectory = []
+        for idx, (screenshot, action) in enumerate(zip(screenshot_uris, past_actions)):
+            trajectory.append(
+                {"type": "text", "text": "Screenshot {}:\n".format(idx + 1)}
+            )
+            trajectory.append(screenshot)
+            trajectory.append(
+                {"type": "text", "text": "Action-{}: {}\n".format(idx + 1, action)}
+            )
+        return trajectory
+
+    def construct(self, obs, meta_data) -> APIInput:
+        self.bbox_info = meta_data["curr_obs_bboxes"]
+        intro = self.instruction["intro"]
+        examples = self.instruction["examples"]
+        template = self.instruction["template"]
+        keywords = self.instruction["meta_data"]["keywords"]
+        if self.instruction["meta_data"].get("use_som", True):
+            screenshot = obs["screenshot_som"]
+        else:
+            # fallback to the original screenshot if som is not used
+            screenshot = obs["screenshot"]
+
+        self.screenshot = screenshot
+        url = obs["url"]
+        intent = obs["goal"]
+
+        inputs_for_keywords = {
+            "objective": intent,
+            "url": url,
+            "observation": "<see screenshot below>",
+        }
+
+        past_screenshots = meta_data["past_screenshots"]
+        if len(past_screenshots) == 0:
+            trajectory_info = [{"type": "text", "text": "None\n"}]
+        else:
+            past_actions = meta_data["action_history"][
+                1:
+            ]  # get rid of the "None" padding
+            trajectory_info = self.get_trajectory_info(past_screenshots, past_actions)
+
+        inputs_for_keywords = {k: inputs_for_keywords[k] for k in keywords}
+        current = template.format(**inputs_for_keywords)
+        assert all([f"{{k}}" not in current for k in keywords])
+
+        intro_message = []
+        intro_message.append({"type": "text", "text": intro})
+        assert not examples  # make sure there are no examples
+        user_messages = []
+        user_messages.append({"type": "text", "text": current})
+        user_messages.append({"type": "text", "text": "Trajectory-so-far:\n"})
+        user_messages.extend(trajectory_info)
+
+        user_messages.extend(
+            [
+                {"type": "text", "text": "Current Observation:\n"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_data_to_uri(screenshot)},
+                },
+            ]
+        )
+
+        prompt = [
+            make_system_message(intro_message),
+            make_user_message(user_messages),
+        ]
+
+        return prompt
+
+    def mark_coordinates(self, screenshot, coordinates):
+        # Load the mouse icon with alpha channel (transparency)
+        mouse_icon = cv2.imread(
+            MOUSE_ICON_PATH, cv2.IMREAD_UNCHANGED
+        )  # Shape: (h, w, 4)
+        if mouse_icon is None:
+            print("Mouse icon not found!")
+            return
+        marked = screenshot.copy()
+        x, y = coordinates
+        # Resize mouse icon if needed
+        icon_h, icon_w = mouse_icon.shape[:2]
+        if icon_h > 30 or icon_w > 30:
+            mouse_icon = cv2.resize(mouse_icon, (30, 30), interpolation=cv2.INTER_AREA)
+            icon_h, icon_w = mouse_icon.shape[:2]
+
+        # Calculate top-left corner of where to place the icon
+        top_left_x = x - icon_w // 2
+        top_left_y = y - icon_h // 2
+
+        # Make sure the coordinates are within bounds
+        top_left_x = max(0, min(top_left_x, marked.shape[1] - icon_w))
+        top_left_y = max(0, min(top_left_y, marked.shape[0] - icon_h))
+
+        # Split the icon into color and alpha channels
+        icon_rgb = mouse_icon[:, :, :3]
+        icon_alpha = mouse_icon[:, :, 3] / 255.0
+
+        # Region of interest on the base image
+        roi = marked[top_left_y : top_left_y + icon_h, top_left_x : top_left_x + icon_w]
+
+        # Blend the icon with the ROI using the alpha channel
+        for c in range(3):  # For each color channel
+            roi[:, :, c] = (
+                roi[:, :, c] * (1 - icon_alpha) + icon_rgb[:, :, c] * icon_alpha
+            )
+
+        marked[top_left_y : top_left_y + icon_h, top_left_x : top_left_x + icon_w] = roi
+        return marked
+
+    def _parse_answer_coordinate(self, response: str) -> dict:
+        """
+        Answer parser if the low-level controller directly allows for executing actions based on coordinates.
+        """
+        try:
+            parsed_response = self.extract_action(response)
+            bgym_action, orig_action = create_bgym_action_with_coordinates(
+                parsed_response
+            )
+            return {
+                "action": parsed_response,
+                "bgym_action": bgym_action,
+                "raw_prediction": response,
+                "orig_action": orig_action,
+            }
+        except Exception as e:
+            raise ParseError(
+                f"\nCannot parse action from response {response}. Error: {e}"
+            )
+
+    def _parse_answer_bid(self, response: str) -> dict:
+        try:
+            parsed_response = self.extract_action(response)
+            # for the bgym action we need to map goto links to the local links
+            use_som = self.instruction["meta_data"].get("use_som", True)
+            if not use_som:
+                # we will handle later
+                action_type = parsed_response.split(" ")[0]
+                if action_type in ["click", "type", "hover"]:
+                    # get dom id
+                    match = re.match(
+                        r"(click|type|hover)\s*\((\d+),\s*(\d+)\)\s*(?:\[([^\]]+)\])?\s*(?:\[(\d+)\])?",
+                        parsed_response,
+                    )
+                    if not match:
+                        raise ParseError(
+                            f"\nCannot parse the coordinates from {parsed_response}. Please check the format."
+                        )
+                    action_type, x, y, text, index = match.groups()
+                    coordinates = (int(x), int(y))
+                    index = int(index) if index else None
+
+                    dom_id = map_coordinates_to_dom(coordinates, self.bbox_info)
+                    if action_type in ["click", "hover"]:
+                        for_bgym = f"{action_type} [{dom_id}]"
+                    else:
+                        for_bgym = f"type [{dom_id}] [{text}]"
+                        if index is not None:
+                            # append the index to the type action
+                            for_bgym += f" [{index}]"
+                    if dom_id is None:
+                        raise ParseError(
+                            f"\nThere is no interactable element at coordinates ({x}, {y}) in the screenshot. Please check the screenshot and only issue actions for valid elements."
+                        )
+                    # remap parsed_response to the for_bgym action
+                    parsed_response = for_bgym
+                    orig_action = {
+                        "action_type": action_type,
+                        "dom_id": dom_id,
+                        "text": text,
+                        "index": index,
+                        "coordinates": coordinates,
+                    }
+                else:
+                    # coordinates not applicable
+                    orig_action = {"action_type": action_type}
+                bgym_action = create_bgym_action(parsed_response)
+
+            elif self.open_world:
+                # do not remap urls
+                bgym_action = create_bgym_action(parsed_response)
+            else:
+                bgym_action = create_bgym_action(self.map_url_to_local(parsed_response))
+
+            if not use_som:
+                return {
+                    "action": parsed_response,
+                    "bgym_action": bgym_action,
+                    "raw_prediction": response,
+                    "orig_action": orig_action,
+                }
+            else:
+                return {
+                    "action": parsed_response,
+                    "bgym_action": bgym_action,
+                    "raw_prediction": response,
+                }
         except Exception as e:
             raise ParseError(
                 f"Cannot parse action from response {response}. Error: {e}"

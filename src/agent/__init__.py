@@ -9,9 +9,11 @@ from .agent import (
 from .agentlab_agent import (
     NNetNavBrowserGymAgent,
     AgentFactory,
+    VLMAgentFactory,
     NNetNavExplorerAgent,
     ExplorationAgentFactory,
     LMModule,
+    FLAGS_VLM,
 )
 
 __all__ = [
@@ -20,5 +22,5 @@ __all__ = [
     "PromptAgent",
     "construct_agent",
     "InstructionGenerator",
-    "LMModule"
+    "LMModule",
 ]

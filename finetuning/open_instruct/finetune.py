@@ -99,7 +99,6 @@ def encode_with_messages_format(example, tokenizer, max_seq_length, add_bos=Fals
     
     if len(messages) == 0:
         raise ValueError("messages field is empty.")
-
     def _concat_messages(messages):
         message_text = ""
         for message in messages:
